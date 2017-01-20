@@ -8,6 +8,7 @@
 #include <atasmart.h>
 #include <sys/signal.h>
 #include <dirent.h>
+#include <cfloat>
 
 constexpr int const STATUS_WIDTH = 80;
 
@@ -44,9 +45,9 @@ public:
 	std::string firmware;
 	std::string serial;
 	uint64_t size;
-	uint64_t powerOnCount;
-	uint64_t powerOnHour;
-	double temperature;
+	uint64_t powerOnCount = UINT64_MAX;
+	uint64_t powerOnHour = UINT64_MAX;
+	double temperature = -DBL_MAX;
 
 	std::vector<Attribute> attribute;
 
@@ -65,14 +66,15 @@ public:
 		serial = data->serial;
 
 		uint64_t value;
+		int smart_ret;
 		sk_disk_get_size(skdisk, &value);
 		size = value;
-		sk_disk_smart_get_power_cycle(skdisk, &value);
-		powerOnCount = value;
-		sk_disk_smart_get_power_on(skdisk, &value);
-		powerOnHour = value / (1000llu * 60llu * 60llu);
-		sk_disk_smart_get_temperature(skdisk, &value);
-		temperature = (double)(value - 273150llu) / 1000.0;
+		smart_ret = sk_disk_smart_get_power_cycle(skdisk, &value);
+		if (!smart_ret) powerOnCount = value;
+		smart_ret = sk_disk_smart_get_power_on(skdisk, &value);
+		if (!smart_ret) powerOnHour = value / (1000llu * 60llu * 60llu);
+		smart_ret = sk_disk_smart_get_temperature(skdisk, &value);
+		if (!smart_ret) temperature = (double)(value - 273150llu) / 1000.0;
 
 		sk_disk_smart_parse_attributes(skdisk, [](SkDisk * skdisk, SkSmartAttributeParsedData const * data, void * userdata)
 		{
@@ -174,9 +176,14 @@ void drawDeviceBar(WINDOW * window, std::vector<SMART> const & smartList, int se
 		wattroff(window, COLOR_PAIR(1 + static_cast<int>(smartToHealth(smartList[i]))));
 
 		wattrset(window, COLOR_PAIR(1 + static_cast<int>(temperatureToHealth(smartList[i].temperature))));
-		mvwprintw(window, 1, x, "%.1f ", smartList[i].temperature);
-		waddch(window, ACS_DEGREE);
-		waddstr(window, "C");
+		if (smartList[i].temperature == -DBL_MAX)
+			mvwprintw(window, 1, x, "N/A ", smartList[i].temperature);
+		else
+		{
+			mvwprintw(window, 1, x, "%.1f ", smartList[i].temperature);
+			waddch(window, ACS_DEGREE);
+			waddstr(window, "C");
+		}
 		wattroff(window, COLOR_PAIR(1 + static_cast<int>(temperatureToHealth(smartList[i].temperature))));
 
 		if (i == select)
@@ -254,15 +261,23 @@ void drawStatus(WINDOW * window, SMART const & smart)
 	mvwprintw(window, 5, 1, "Temperature");
 	wattroff(window, COLOR_PAIR(4));
 	wattrset(window, COLOR_PAIR(1 + static_cast<int>(temperatureToHealth(smart.temperature))));
-	mvwprintw(window, 6, 2, "  %0.1f ", smart.temperature);
-	waddch(window, ACS_DEGREE);
-	waddstr(window, "C  ");
+	if (smart.temperature == -DBL_MAX)
+		mvwprintw(window, 6, 2, "  N/A ", smart.temperature);
+	else
+	{
+		mvwprintw(window, 6, 2, "  %0.1f ", smart.temperature);
+		waddch(window, ACS_DEGREE);
+		waddstr(window, "C  ");
+	}
 	wattroff(window, COLOR_PAIR(1 + static_cast<int>(temperatureToHealth(smart.temperature))));
 
 	wattrset(window, COLOR_PAIR(4));
 	mvwprintw(window, 2, (int)(STATUS_WIDTH * (3.0 / 5)), "Power On Count:");
 	wattrset(window, COLOR_PAIR(4) | A_BOLD);
-	wprintw(window, " %llu ", smart.powerOnCount);
+	if (smart.powerOnCount == UINT64_MAX)
+		wprintw(window, " N/A ", smart.powerOnCount);
+	else
+		wprintw(window, " %llu ", smart.powerOnCount);
 	wattroff(window, COLOR_PAIR(4) | A_BOLD);
 	wattrset(window, COLOR_PAIR(4));
 	wprintw(window, "count");
@@ -271,7 +286,10 @@ void drawStatus(WINDOW * window, SMART const & smart)
 	mvwprintw(window, 3, (int)(STATUS_WIDTH * (3.0 / 5)), "Power On Hours:");
 	wattroff(window, COLOR_PAIR(4));
 	wattrset(window, COLOR_PAIR(4) | A_BOLD);
-	wprintw(window, " %llu ", smart.powerOnHour);
+	if (smart.powerOnHour == UINT64_MAX)
+		wprintw(window, " N/A ", smart.powerOnHour);
+	else
+		wprintw(window, " %llu ", smart.powerOnHour);
 	wattroff(window, COLOR_PAIR(4) | A_BOLD);
 	wattrset(window, COLOR_PAIR(4));
 	wprintw(window, "hours");
